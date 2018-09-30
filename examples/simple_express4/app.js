@@ -79,9 +79,13 @@ myOAP.on('save_access_token', function(user_id, client_id, access_token) {
   console.log('saving access token %s for user_id=%s client_id=%s', JSON.stringify(access_token), user_id, client_id);
 });
 
+/**
+ * 验证token是否已经过期
+ * 过期时间为十分钟
+ */
 // an access token was received in a URL query string parameter or HTTP header
 myOAP.on('access_token', function(req, token, next) {
-  var TOKEN_TTL = 10 * 60 * 1000; // 10 minutes
+  var TOKEN_TTL = 10 * 60 * 1000; // 10 minutes 10分钟
 
   if(token.grant_date.getTime() + TOKEN_TTL > Date.now()) {
     req.session.user = token.user_id;
