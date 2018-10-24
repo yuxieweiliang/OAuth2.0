@@ -5,17 +5,24 @@ var OAuth2Provider = require('../../index').OAuth2Provider,
        MemoryStore = express.session.MemoryStore;
 
 // hardcoded list of <client id, client secret> tuples
+// 客户端ID、客户端机密>元组的硬编码列表
 var myClients = {
- '1': '1secret',
+ '1': '1secret'
 };
 
 // temporary grant storage
 var myGrants = {};
 
-var myOAP = new OAuth2Provider({crypt_key: 'encryption secret', sign_key: 'signing secret'});
+var myOAP = new OAuth2Provider({
+  crypt_key: 'encryption secret', // 密钥
+  sign_key: 'signing secret' // 签名
+});
 
-// before showing authorization page, make sure the user is logged in
+/**
+ * 在显示授权页之前，请确保用户已登录。
+ */
 myOAP.on('enforce_login', function(req, res, authorize_url, next) {
+  console.log('enforce_login', req, res, authorize_url)
   if(req.session.user) {
     next(req.session.user);
   } else {
@@ -24,14 +31,24 @@ myOAP.on('enforce_login', function(req, res, authorize_url, next) {
   }
 });
 
-// render the authorize form with the submission URL
-// use two submit buttons named "allow" and "deny" for the user's choice
+/**
+ * 提供选择授权或拒绝页面。
+ * 使用两个提交按钮名为“允许”和“拒绝”以供用户选择
+ */
 myOAP.on('authorize_form', function(req, res, client_id, authorize_url) {
-  res.end('<html>this app wants to access your account... <form method="post" action="' + authorize_url + '"><button name="allow">Allow</button><button name="deny">Deny</button></form>');
+  console.log('authorize_form', req, res, client_id, authorize_url)
+  res.end('<html>this app wants to access your account... ' +
+    '<form method="post" action="' + authorize_url + '">' +
+    '<button name="allow">Allow</button>' +
+    '<button name="deny">Deny</button>' +
+    '</form>');
 });
 
-// save the generated grant code for the current user
+/**
+ * 为当前用户保存生成的授权代码
+ */
 myOAP.on('save_grant', function(req, client_id, code, next) {
+  // console.log('save_grant', req, client_id, code)
   if(!(req.session.user in myGrants))
     myGrants[req.session.user] = {};
 
@@ -39,14 +56,20 @@ myOAP.on('save_grant', function(req, client_id, code, next) {
   next();
 });
 
-// remove the grant when the access token has been sent
+/**
+ * 当访问令牌已被发送时移除授权
+ */
 myOAP.on('remove_grant', function(user_id, client_id, code) {
+  // console.log('remove_grant', user_id, client_id, code)
   if(myGrants[user_id] && myGrants[user_id][client_id])
     delete myGrants[user_id][client_id];
 });
 
-// find the user for a particular grant
+/**
+ * 找到授权用户
+ */
 myOAP.on('lookup_grant', function(client_id, client_secret, code, next) {
+  // console.log('lookup_grant', client_id, client_secret, code)
   // verify that client id/secret pair are valid
   if(client_id in myClients && myClients[client_id] == client_secret) {
     for(var user in myGrants) {
@@ -60,8 +83,11 @@ myOAP.on('lookup_grant', function(client_id, client_secret, code, next) {
   next(new Error('no such grant found'));
 });
 
-// embed an opaque value in the generated access token
+/**
+ * 在生成的访问令牌中嵌入不透明值
+ */
 myOAP.on('create_access_token', function(user_id, client_id, next) {
+  // console.log('create_access_token', client_id, client_id)
   var extra_data = 'blah'; // can be any data type or null
   //var oauth_params = {token_type: 'bearer'};
 
@@ -70,12 +96,14 @@ myOAP.on('create_access_token', function(user_id, client_id, next) {
 
 // (optional) do something with the generated access token
 myOAP.on('save_access_token', function(user_id, client_id, access_token) {
+  // console.log('save_access_token', client_id, client_id, access_token)
   console.log('saving access token %s for user_id=%s client_id=%s', JSON.stringify(access_token), user_id, client_id);
 });
 
-// an access token was received in a URL query string parameter or HTTP header
+// 在URL查询字符串参数或HTTP报头中接收访问令牌。
 myOAP.on('access_token', function(req, token, next) {
   var TOKEN_TTL = 10 * 60 * 1000; // 10 minutes
+  // console.log('save_access_token', req, token)
 
   if(token.grant_date.getTime() + TOKEN_TTL > Date.now()) {
     req.session.user = token.user_id;
@@ -89,23 +117,36 @@ myOAP.on('access_token', function(req, token, next) {
 
 function router(app) {
   app.get('/', function(req, res, next) {
+    // console.log('/', req.session)
+
     res.end('home, logged in? ' + !!req.session.user);
   });
 
   app.get('/login', function(req, res, next) {
+    // console.log('get/login', req.session)
     if(req.session.user) {
       res.writeHead(303, {Location: '/'});
       return res.end();
     }
 
+    // console.log(req.body)
     var next_url = req.query.next ? req.query.next : '/';
 
-    res.end('<html><form method="post" action="/login"><input type="hidden" name="next" value="' + next_url + '"><input type="text" placeholder="username" name="username"><input type="password" placeholder="password" name="password"><button type="submit">Login</button></form>');
+    res.end('<html>' +
+      '<form method="post" action="/login">' +
+      '<input type="hidden" name="next" value="' + next_url + '">' +
+      '<input type="text" placeholder="username" name="username">' +
+      '<input type="password" placeholder="password" name="password">' +
+      '<button type="submit">Login</button>' +
+      '</form>');
   });
 
   app.post('/login', function(req, res, next) {
     req.session.user = req.body.username;
-
+    myOAP.emit('create_access_token', req.body.username, req.body.password, function(code) {
+      console.log(code)
+    })
+    // console.log('post/login', req.body)
     res.writeHead(303, {Location: req.body.next || '/'});
     res.end();
   });
@@ -136,7 +177,7 @@ express.createServer(
   myOAP.oauth(),
   myOAP.login(),
   express.router(router)
-).listen(8081);
+).listen(8082);
 
 function escape_entities(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
